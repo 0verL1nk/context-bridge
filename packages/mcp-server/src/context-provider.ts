@@ -5,8 +5,21 @@ import { ContextBridgePayload, FileContext } from "@context-bridge/protocol";
 
 // Adjust these paths based on OpenClaw's workspace structure
 const WORKSPACE_ROOT = process.cwd(); // Assuming server runs from workspace root
-const MEMORY_FILE = path.join(WORKSPACE_ROOT, "MEMORY.md");
-const MEMORY_DIR = path.join(WORKSPACE_ROOT, "memory");
+// Fix: MEMORY_DIR should be relative to workspace root, but if we run from projects/context-bridge, we need to go up.
+// Better strategy: Look for 'memory' dir in CWD, if not found, try parent directories.
+function findMemoryDir(startDir: string): string {
+    let current = startDir;
+    for (let i = 0; i < 3; i++) {
+        const check = path.join(current, "memory");
+        if (fs.existsSync(check)) return check;
+        current = path.dirname(current);
+    }
+    return path.join(startDir, "memory"); // Fallback
+}
+
+const MEMORY_DIR = findMemoryDir(WORKSPACE_ROOT);
+const MEMORY_FILE = path.join(path.dirname(MEMORY_DIR), "MEMORY.md");
+const CHAT_HISTORY_FILE = path.join(MEMORY_DIR, "chat_history.json");
 
 function getDailyMemoryFile(): string | null {
     const today = new Date().toISOString().split("T")[0];
@@ -78,6 +91,25 @@ export function getRealContext(): ContextBridgePayload {
             relevance: 0.8,
             note: "Today's working memory"
         });
+    }
+
+    // 4. Capture Chat History
+    if (fs.existsSync(CHAT_HISTORY_FILE)) {
+        try {
+            const content = fs.readFileSync(CHAT_HISTORY_FILE, "utf-8");
+            // Validate JSON
+            JSON.parse(content); 
+            activeContext.push({
+                type: "file",
+                path: "memory/chat_history.json",
+                content: summarizeFile(content, 100),
+                compression: "full", // Chat history is critical, keep more if possible
+                relevance: 1.0,
+                note: "Recent conversation history"
+            });
+        } catch (e) {
+            // Ignore invalid JSON
+        }
     }
 
     return {
