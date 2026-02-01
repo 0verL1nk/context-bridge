@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+// vitest globals enabled via vitest.config.ts
 import { ContextBridgePayload, FileContext } from "../index";
 
 describe("ContextBridge Protocol Schema", () => {

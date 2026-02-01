@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+// vitest globals enabled via vitest.config.ts
 import * as fs from "fs";
 import * as child_process from "child_process";
 import { getRealContext } from "../context-provider";
