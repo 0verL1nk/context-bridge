@@ -93,22 +93,28 @@ export function getRealContext(): ContextBridgePayload {
         });
     }
 
-    // 4. Capture Chat History
+    // 4. Capture Chat History (Optimized: Tail-only, no bloat)
     if (fs.existsSync(CHAT_HISTORY_FILE)) {
         try {
-            const content = fs.readFileSync(CHAT_HISTORY_FILE, "utf-8");
-            // Validate JSON
-            JSON.parse(content); 
-            activeContext.push({
-                type: "file",
-                path: "memory/chat_history.json",
-                content: summarizeFile(content, 100),
-                compression: "full", // Chat history is critical, keep more if possible
-                relevance: 1.0,
-                note: "Recent conversation history"
-            });
+            const rawContent = fs.readFileSync(CHAT_HISTORY_FILE, "utf-8");
+            const messages = JSON.parse(rawContent);
+            
+            if (Array.isArray(messages)) {
+                // Keep only the last 10 messages (Tail strategy)
+                const recentMessages = messages.slice(-10); 
+                const content = JSON.stringify(recentMessages, null, 2);
+                
+                activeContext.push({
+                    type: "file",
+                    path: "memory/chat_history.json",
+                    content: content,
+                    compression: "snippet",
+                    relevance: 0.9,
+                    note: "Recent 10 messages of conversation history"
+                });
+            }
         } catch (e) {
-            // Ignore invalid JSON
+            // Ignore errors
         }
     }
 
