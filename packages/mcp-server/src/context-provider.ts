@@ -34,23 +34,65 @@ function summarizeFile(content: string, maxLines = 50): string {
     return `${head}\n\n... [${lines.length - 30} lines hidden by Context Bridge] ...\n\n${tail}`;
 }
 
+// Helper: Get recent files via FS scan (Fallback for non-git)
+function getRecentFiles(dir: string, limit = 5): string[] {
+    const recentFiles: { file: string; mtime: number }[] = [];
+    
+    function scan(currentDir: string) {
+        if (recentFiles.length > 100) return; // Safety limit
+
+        try {
+            const entries = fs.readdirSync(currentDir, { withFileTypes: true });
+            for (const entry of entries) {
+                const fullPath = path.join(currentDir, entry.name);
+                const relativePath = path.relative(dir, fullPath);
+
+                // Ignore patterns
+                if (entry.name.startsWith(".") || 
+                    entry.name === "node_modules" || 
+                    entry.name === "dist" ||
+                    entry.name === "venv") continue;
+
+                if (entry.isDirectory()) {
+                    scan(fullPath);
+                } else if (entry.isFile()) {
+                    if (!entry.name.match(/\.(ts|js|py|json|md|txt|yml|html|css)$/)) continue;
+                    const stats = fs.statSync(fullPath);
+                    const oneDayAgo = Date.now() - 24 * 60 * 60 * 1000;
+                    if (stats.mtimeMs > oneDayAgo) {
+                        recentFiles.push({ file: relativePath, mtime: stats.mtimeMs });
+                    }
+                }
+            }
+        } catch (e) {
+            // Ignore access errors
+        }
+    }
+
+    try {
+        scan(dir);
+    } catch (e) { }
+
+    return recentFiles
+        .sort((a, b) => b.mtime - a.mtime)
+        .slice(0, limit)
+        .map(x => x.file);
+}
+
 // Helper: Heuristic Decision Extraction
 function extractKeyDecisions(messages: any[]): any[] {
     const decisions: any[] = [];
-    // Keywords implying a decision, plan, or consensus
     const KEYWORDS = ["决定", "方案", "plan", "consensus", "decision", "selected", "chosen", "agree", "fix", "implement"];
     
     messages.forEach((msg, index) => {
         if (msg.role === "assistant" || msg.role === "user") {
             const content = msg.content?.toLowerCase() || "";
-            // Heuristic: If message contains keywords and is not too long (avoiding huge dumps)
             if (KEYWORDS.some(kw => content.includes(kw)) && content.length < 500) {
                 decisions.push({
                     id: `decision-${index}`,
                     question: "Extracted from history",
                     options: [],
                     selectedOptionId: "unknown",
-                    // Use the message content as the reasoning/decision trace
                     decision: msg.content.substring(0, 200) + (msg.content.length > 200 ? "..." : "")
                 });
             }
@@ -60,20 +102,20 @@ function extractKeyDecisions(messages: any[]): any[] {
 }
 
 export function getRealContext(): ContextBridgePayload {
-    const activeContext: any[] = []; // Using any temporarily to bypass strict union checks during push
+    const activeContext: any[] = []; 
     let decisionLog: any[] = [];
+    let gitAvailable = false;
 
-    // 1. Capture Git Status (Modified Files)
+    // 1. Try Capture Git Status (Modified Files)
     try {
-        const statusOutput = execSync("git status --short", { encoding: "utf-8", cwd: WORKSPACE_ROOT });
+        const statusOutput = execSync("git status --short", { encoding: "utf-8", cwd: WORKSPACE_ROOT, stdio: ['ignore', 'pipe', 'ignore'] });
+        gitAvailable = true;
         const modifiedFiles = statusOutput.split("\n")
             .map(line => line.trim().split(" ").pop())
             .filter((f): f is string => !!f && !f.startsWith(".."));
 
         for (const file of modifiedFiles) {
-             // Only capture text files
              if (!file.match(/\.(ts|js|py|json|md|txt|yml)$/)) continue;
-             
              const fullPath = path.join(WORKSPACE_ROOT, file);
              if (fs.existsSync(fullPath)) {
                  const content = fs.readFileSync(fullPath, "utf-8");
@@ -83,28 +125,47 @@ export function getRealContext(): ContextBridgePayload {
                      content: summarizeFile(content),
                      compression: "snippet",
                      relevance: 1.0,
-                     note: "Active modified file in workspace"
+                     note: "Active modified file (Git)"
                  });
              }
         }
     } catch (e) {
-        // Not a git repo or other error, ignore
+        gitAvailable = false;
     }
 
-    // 2. Capture Long-term Memory
+    // 2. Fallback: File System Scan (If Git failed or returned nothing)
+    if (!gitAvailable || activeContext.length === 0) {
+        const recentFiles = getRecentFiles(WORKSPACE_ROOT);
+        for (const file of recentFiles) {
+             if (activeContext.some(c => c.path === file)) continue;
+
+             const fullPath = path.join(WORKSPACE_ROOT, file);
+             const content = fs.readFileSync(fullPath, "utf-8");
+             activeContext.push({
+                 type: "file",
+                 path: file,
+                 content: summarizeFile(content),
+                 compression: "snippet",
+                 relevance: 0.8,
+                 note: "Recently modified file (FS Scan)"
+             });
+        }
+    }
+
+    // 3. Capture Long-term Memory
     if (fs.existsSync(MEMORY_FILE)) {
         const content = fs.readFileSync(MEMORY_FILE, "utf-8");
         activeContext.push({
             type: "file",
             path: "MEMORY.md",
-            content: summarizeFile(content, 100), // Give more space to memory
+            content: summarizeFile(content, 100),
             compression: "summary",
             relevance: 0.9,
-            note: "Long-term memory and core directives"
+            note: "Long-term memory"
         });
     }
 
-    // 3. Capture Daily Memory
+    // 4. Capture Daily Memory
     const dailyFile = getDailyMemoryFile();
     if (dailyFile) {
         const content = fs.readFileSync(dailyFile, "utf-8");
@@ -118,14 +179,13 @@ export function getRealContext(): ContextBridgePayload {
         });
     }
 
-    // 4. Capture Chat History (Hybrid: Tail + Decision Extraction)
+    // 5. Capture Chat History (Hybrid)
     if (fs.existsSync(CHAT_HISTORY_FILE)) {
         try {
             const rawContent = fs.readFileSync(CHAT_HISTORY_FILE, "utf-8");
             const messages = JSON.parse(rawContent);
-            
             if (Array.isArray(messages)) {
-                // A. Sliding Window: Keep last 10
+                // A. Sliding Window
                 const recentMessages = messages.slice(-10); 
                 activeContext.push({
                     type: "file",
@@ -133,15 +193,14 @@ export function getRealContext(): ContextBridgePayload {
                     content: JSON.stringify(recentMessages, null, 2),
                     compression: "snippet",
                     relevance: 0.9,
-                    note: "Recent 10 messages of conversation history"
+                    note: "Recent 10 messages"
                 });
 
-                // B. Decision Extraction: Scan older messages
+                // B. Decision Extraction
                 if (messages.length > 10) {
                     const olderMessages = messages.slice(0, -10);
                     const extractedDecisions = extractKeyDecisions(olderMessages);
                     if (extractedDecisions.length > 0) {
-                         // Map to protocol DecisionNode format
                          decisionLog = extractedDecisions.map(d => ({
                              id: d.id,
                              question: "Historical Decision",
@@ -149,28 +208,23 @@ export function getRealContext(): ContextBridgePayload {
                                  id: "opt-1",
                                  description: d.decision,
                                  status: "chosen",
-                                 reasoning: "Extracted from conversation history"
+                                 reasoning: "Extracted from history"
                              }],
                              selectedOptionId: "opt-1"
                          }));
                     }
                 }
             }
-        } catch (e) {
-            // Ignore errors
-        }
+        } catch (e) { }
     }
 
     return {
         schemaVersion: "1.0.0",
         sessionId: process.env.SESSION_ID || "current-session",
         timestamp: new Date().toISOString(),
-        agent: {
-            name: "OpenClaw-Local",
-            model: process.env.MODEL || "unknown"
-        },
+        agent: { name: "OpenClaw-Local" },
         activeContext,
-        decisionLog, // Populated from history
-        constraints: ["Ensure all code changes are verified"]
+        decisionLog,
+        constraints: ["Context Bridge Active"]
     };
 }
