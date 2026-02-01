@@ -1,6 +1,6 @@
 {
   "name": "context-bridge-monorepo",
-  "private": true,
+  "description": "Industrial-grade Context Bridge MCP Server for OpenClaw - The 'Hive Mind' for Agent Swarms.",
   "packageManager": "npm@11.8.0",
   "workspaces": [
     "packages/*"

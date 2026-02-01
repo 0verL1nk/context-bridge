@@ -4,12 +4,22 @@ import { ContextBridgePayload } from "@context-bridge/protocol";
 import * as path from "path";
 
 // 1. Setup Transport (Connect to local MCP Server)
-const serverPath = path.resolve("packages/mcp-server/dist/index.js");
+// Resolve absolute path to server BEFORE changing cwd
+const serverPath = path.resolve(import.meta.dirname, "../packages/mcp-server/dist/index.js");
+
+// Allow changing CWD via argument
+const targetDir = process.argv[2] ? path.resolve(process.argv[2]) : process.cwd();
+if (process.argv[2]) {
+    console.log(`📂 Switching context to: ${targetDir}`);
+    process.chdir(targetDir);
+}
+
 console.log(`🔌 Connecting to MCP Server at: ${serverPath}`);
 
 const transport = new StdioClientTransport({
   command: "node",
   args: [serverPath],
+  // Server inherits current CWD
 });
 
 const client = new Client(
