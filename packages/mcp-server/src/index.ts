@@ -10,6 +10,7 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import { ContextBridgePayload } from "@context-bridge/protocol";
+import { getRealContext } from "./context-provider.js";
 
 // Initialize server
 const server = new Server(
@@ -34,7 +35,7 @@ server.setRequestHandler(ListResourcesRequestSchema, async () => {
         uri: "context://latest",
         name: "Latest Context Snapshot",
         mimeType: "application/json",
-        description: "The most recent context state captured by the bridge",
+        description: "The most recent context state captured by the bridge (Real-time)",
       },
     ],
   };
@@ -42,37 +43,20 @@ server.setRequestHandler(ListResourcesRequestSchema, async () => {
 
 server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
   if (request.params.uri === "context://latest") {
-    // DUMMY DATA FOR NOW
-    const payload: ContextBridgePayload = {
-      schemaVersion: "1.0.0",
-      sessionId: "session-123",
-      timestamp: new Date().toISOString(),
-      agent: {
-        name: "OpenClaw-Main",
-        model: "gpt-4",
-      },
-      activeContext: [
-        {
-          type: "file",
-          path: "src/index.ts",
-          compression: "full",
-          relevance: 1.0,
-          note: "Entry point",
-        },
-      ],
-      decisionLog: [],
-      constraints: ["Do not use floating point arithmetic"],
-    };
-
-    return {
-      contents: [
-        {
-          uri: "context://latest",
-          mimeType: "application/json",
-          text: JSON.stringify(payload, null, 2),
-        },
-      ],
-    };
+    try {
+      const payload = getRealContext();
+      return {
+        contents: [
+          {
+            uri: "context://latest",
+            mimeType: "application/json",
+            text: JSON.stringify(payload, null, 2),
+          },
+        ],
+      };
+    } catch (e) {
+      throw new Error(`Failed to capture context: ${e}`);
+    }
   }
   throw new Error("Resource not found");
 });
