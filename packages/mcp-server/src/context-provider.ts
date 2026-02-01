@@ -5,8 +5,7 @@ import { ContextBridgePayload, FileContext } from "@context-bridge/protocol";
 
 // Adjust these paths based on OpenClaw's workspace structure
 const WORKSPACE_ROOT = process.cwd(); // Assuming server runs from workspace root
-// Fix: MEMORY_DIR should be relative to workspace root, but if we run from projects/context-bridge, we need to go up.
-// Better strategy: Look for 'memory' dir in CWD, if not found, try parent directories.
+
 function findMemoryDir(startDir: string): string {
     let current = startDir;
     for (let i = 0; i < 3; i++) {
@@ -35,8 +34,34 @@ function summarizeFile(content: string, maxLines = 50): string {
     return `${head}\n\n... [${lines.length - 30} lines hidden by Context Bridge] ...\n\n${tail}`;
 }
 
+// Helper: Heuristic Decision Extraction
+function extractKeyDecisions(messages: any[]): any[] {
+    const decisions: any[] = [];
+    // Keywords implying a decision, plan, or consensus
+    const KEYWORDS = ["决定", "方案", "plan", "consensus", "decision", "selected", "chosen", "agree", "fix", "implement"];
+    
+    messages.forEach((msg, index) => {
+        if (msg.role === "assistant" || msg.role === "user") {
+            const content = msg.content?.toLowerCase() || "";
+            // Heuristic: If message contains keywords and is not too long (avoiding huge dumps)
+            if (KEYWORDS.some(kw => content.includes(kw)) && content.length < 500) {
+                decisions.push({
+                    id: `decision-${index}`,
+                    question: "Extracted from history",
+                    options: [],
+                    selectedOptionId: "unknown",
+                    // Use the message content as the reasoning/decision trace
+                    decision: msg.content.substring(0, 200) + (msg.content.length > 200 ? "..." : "")
+                });
+            }
+        }
+    });
+    return decisions;
+}
+
 export function getRealContext(): ContextBridgePayload {
     const activeContext: any[] = []; // Using any temporarily to bypass strict union checks during push
+    let decisionLog: any[] = [];
 
     // 1. Capture Git Status (Modified Files)
     try {
@@ -93,25 +118,43 @@ export function getRealContext(): ContextBridgePayload {
         });
     }
 
-    // 4. Capture Chat History (Optimized: Tail-only, no bloat)
+    // 4. Capture Chat History (Hybrid: Tail + Decision Extraction)
     if (fs.existsSync(CHAT_HISTORY_FILE)) {
         try {
             const rawContent = fs.readFileSync(CHAT_HISTORY_FILE, "utf-8");
             const messages = JSON.parse(rawContent);
             
             if (Array.isArray(messages)) {
-                // Keep only the last 10 messages (Tail strategy)
+                // A. Sliding Window: Keep last 10
                 const recentMessages = messages.slice(-10); 
-                const content = JSON.stringify(recentMessages, null, 2);
-                
                 activeContext.push({
                     type: "file",
                     path: "memory/chat_history.json",
-                    content: content,
+                    content: JSON.stringify(recentMessages, null, 2),
                     compression: "snippet",
                     relevance: 0.9,
                     note: "Recent 10 messages of conversation history"
                 });
+
+                // B. Decision Extraction: Scan older messages
+                if (messages.length > 10) {
+                    const olderMessages = messages.slice(0, -10);
+                    const extractedDecisions = extractKeyDecisions(olderMessages);
+                    if (extractedDecisions.length > 0) {
+                         // Map to protocol DecisionNode format
+                         decisionLog = extractedDecisions.map(d => ({
+                             id: d.id,
+                             question: "Historical Decision",
+                             options: [{
+                                 id: "opt-1",
+                                 description: d.decision,
+                                 status: "chosen",
+                                 reasoning: "Extracted from conversation history"
+                             }],
+                             selectedOptionId: "opt-1"
+                         }));
+                    }
+                }
             }
         } catch (e) {
             // Ignore errors
@@ -127,7 +170,7 @@ export function getRealContext(): ContextBridgePayload {
             model: process.env.MODEL || "unknown"
         },
         activeContext,
-        decisionLog: [], // TODO: Parse from chat history if available
+        decisionLog, // Populated from history
         constraints: ["Ensure all code changes are verified"]
     };
 }

@@ -61,6 +61,11 @@ async function run() {
         console.log(`   - [${item.type}] ${item.path} (${item.compression})`);
     });
 
+    console.log(`🧠 Decision Log Items: ${payload.decisionLog.length}`);
+    payload.decisionLog.forEach(d => {
+        console.log(`   - [Decision] ${d.options[0].description}`);
+    });
+
     // 6. Test Tool (Validation)
     console.log("🛠️ Testing Tool: validate_context...");
     const toolResult = await client.callTool({
