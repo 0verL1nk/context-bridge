@@ -1,0 +1,34 @@
+{
+  "schemaVersion": "1.0.0",
+  "sessionId": "unknown",
+  "timestamp": "2026-02-01T10:10:58.187Z",
+  "agent": {
+    "name": "OpenClaw CLI (Manual Curation)"
+  },
+  "activeContext": [
+    {
+      "type": "file",
+      "path": "../../package-lock.json",
+      "content": "{\n  \"name\": \"context-bridge-monorepo\",\n  \"version\": \"1.0.0\",\n  \"lockfileVersion\": 3,\n  \"requires\": true,\n  \"packages\": {\n    \"\": {\n      \"name\": \"context-bridge-monorepo\",\n      \"workspaces\": [\n        \"packages/*\"\n      ],\n      \"devDependencies\": {\n        \"turbo\": \"^2.0.0\",\n        \"typescript\": \"^5.0.0\"\n      }\n    },\n    \"node_modules/@context-bridge/protocol\": {\n      \"resolved\": \"packages/protocol\",\n      \"link\": true\n    },\n\n... [308 lines hidden by Context Bridge] ...\n\n      \"name\": \"@context-bridge/protocol\",\n      \"version\": \"1.0.0\",\n      \"license\": \"ISC\",\n      \"dependencies\": {\n        \"zod\": \"^4.3.6\"\n      }\n    }\n  }\n}\n",
+      "relevance": 1,
+      "compression": "snippet"
+    },
+    {
+      "type": "file",
+      "path": "../../package.json",
+      "content": "{\n  \"name\": \"context-bridge-monorepo\",\n  \"private\": true,\n  \"workspaces\": [\n    \"packages/*\"\n  ],\n  \"scripts\": {\n    \"build\": \"turbo run build\",\n    \"test\": \"turbo run test\",\n    \"lint\": \"turbo run lint\"\n  },\n  \"devDependencies\": {\n    \"turbo\": \"^2.0.0\",\n    \"typescript\": \"^5.0.0\"\n  }\n}\n",
+      "relevance": 1,
+      "compression": "snippet"
+    },
+    {
+      "type": "file",
+      "path": "../../turbo.json",
+      "content": "{\n  \"$schema\": \"https://turbo.build/schema.json\",\n  \"pipeline\": {\n    \"build\": {\n      \"dependsOn\": [\"^build\"],\n      \"outputs\": [\"dist/**\"]\n    },\n    \"test\": {\n      \"dependsOn\": [\"build\"],\n      \"outputs\": []\n    },\n    \"lint\": {}\n  }\n}\n",
+      "relevance": 1,
+      "compression": "snippet"
+    }
+  ],
+  "decisionLog": [],
+  "constraints": [],
+  "gitSummary": "M ../../crawl4ai-service/service.log\n M ../../package-lock.json\n M ../../package.json\n?? ../\n?? ../../turbo.json"
+}
