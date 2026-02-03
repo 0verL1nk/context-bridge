@@ -6,7 +6,8 @@ import {
   ListResourcesRequestSchema,
   ListToolsRequestSchema,
   ReadResourceRequestSchema,
-  Tool,
+  ListPromptsRequestSchema,
+  GetPromptRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import { ContextBridgePayload } from "@context-bridge/protocol";
@@ -16,12 +17,13 @@ import { getRealContext } from "./context-provider.js";
 const server = new Server(
   {
     name: "context-bridge-server",
-    version: "0.1.0",
+    version: "0.2.0",
   },
   {
     capabilities: {
       resources: {},
       tools: {},
+      prompts: {},
     },
   }
 );
@@ -61,6 +63,37 @@ server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
   throw new Error("Resource not found");
 });
 
+// --- Prompts ---
+
+server.setRequestHandler(ListPromptsRequestSchema, async () => {
+  return {
+    prompts: [
+      {
+        name: "summarize_context",
+        description: "Generate a summary of the current context state",
+      },
+    ],
+  };
+});
+
+server.setRequestHandler(GetPromptRequestSchema, async (request) => {
+  if (request.params.name === "summarize_context") {
+    const payload = getRealContext();
+    return {
+      messages: [
+        {
+          role: "user",
+          content: {
+            type: "text",
+            text: `Please summarize the current context:\n\n${JSON.stringify(payload, null, 2)}`
+          },
+        },
+      ],
+    };
+  }
+  throw new Error("Prompt not found");
+});
+
 // --- Tools ---
 
 server.setRequestHandler(ListToolsRequestSchema, async () => {
@@ -75,6 +108,17 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             json: { type: "string", description: "JSON string to validate" },
           },
           required: ["json"],
+        },
+      },
+      {
+        name: "search_context",
+        description: "Search active files and decision logs for keywords",
+        inputSchema: {
+          type: "object",
+          properties: {
+            query: { type: "string", description: "Search term" },
+          },
+          required: ["query"],
         },
       },
     ],
@@ -103,6 +147,34 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       };
     }
   }
+
+  if (request.params.name === "search_context") {
+    const { query } = request.params.arguments as { query: string };
+    const context = getRealContext();
+    const results = [];
+
+    // Search Files
+    for (const item of context.activeContext) {
+        if (item.type === "file" && (item.path.includes(query) || (item.content && item.content.includes(query)))) {
+            results.push(`[FILE] ${item.path}`);
+        }
+    }
+
+    // Search Decisions
+    for (const decision of context.decisionLog) {
+        if (decision.question.includes(query) || decision.options.some(o => o.description.includes(query))) {
+            results.push(`[DECISION] ${decision.question} -> ${decision.selectedOptionId}`);
+        }
+    }
+
+    return {
+      content: [{ 
+          type: "text", 
+          text: results.length > 0 ? results.join("\n") : "No matches found." 
+      }],
+    };
+  }
+
   throw new Error("Tool not found");
 });
 
